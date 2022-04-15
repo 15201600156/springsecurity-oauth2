@@ -67,7 +67,7 @@ Spring框架对OAuth2协议进行了实现，下面学习下上面两种模式�
 
 Spring Security OAuth2主要包含认证服务器和资源服务器这两大块的实现：
 
-![QQ截图20190624155418.png](doc/624155418.png)
+![QQ截图20190624155418.png](../springsecurity/doc/624155418.png)
 
 认证服务器主要包含了四种授权模式的实现和Token的生成与存储，我们也可以在认证服务器中自定义获取Token的方式（后面会介绍到）；资源服务器主要是在Spring Security的过滤器链上加了OAuth2AuthenticationProcessingFilter过滤器，即使用OAuth2协议发放令牌认证的方式来保护我们的资源。
 
@@ -291,17 +291,17 @@ scope指定为all，表示所有权限。
 
 访问这个链接后，页面如下所示：
 
-![1649931827536](doc/1649931827536.png)
+![1649931827536](../springsecurity/doc/1649931827536-1650002170048.png)
 
 需要登录认证，根据我们前面定义的`UserDetailService`逻辑，这里用户名随便输，密码为123456即可。输入后，页面跳转如下所示：
 
-![1649986639839](doc/1649986639839.png)
+![1649986639839](../springsecurity/doc/1649986639839-1650002170048.png)
 
 选择同意Approve，然后点击Authorize按钮后，页面跳转到了我们指定的redirect_uri，并且带上了授权码信息:
 
 
 
-![1649932163896](doc/1649932163896.png)
+![1649932163896](../springsecurity/doc/1649932163896-1650002170049.png)
 
 
 
@@ -367,11 +367,11 @@ import java.util.Map;
 
 执行成功后就显示了
 
-![1649931633585](doc/1649931633585.png)
+![1649931633585](../springsecurity/doc/1649931633585-1650002170049.png)
 
 一个授权码只能换一次令牌，如果再次点击postman的发送按钮，将返回：
 
-![1649987335534](doc/1649987335534.png)
+![1649987335534](../springsecurity/doc/1649987335534-1650002170049.png)
 
 ### 密码模式获取令牌
 
@@ -434,7 +434,7 @@ public class UserController {
 
 Authorization值为`token_type access_token`，发送请求后，返回：
 
-![1649988926201](doc/1649988926201.png)
+![1649988926201](../springsecurity/doc/1649988926201-1650002170049.png)
 
 虽然令牌是正确的，但是并无法访问`/index`，所以我们必须配置资源服务器，让客户端可以通过合法的令牌来获取资源。
 
@@ -455,24 +455,624 @@ public class ResourceServerConfig  {
 
 重启服务，重复上面的步骤，再次访问http://localhost:8080/oauth/authorize?response_type=code&client_id=test&redirect_uri=http://client1.com&scope=all&state=hello 地址获取token，会出现这个问题
 
-![1649989107486](doc/1649989107486.png)
+![1649989107486](../springsecurity/doc/1649989107486-1650002170049.png)
 
 这个是由于在同时定义了认证服务器和资源服务器后，再去使用授权码模式获取令牌有可能遇到的问题，这时候只要确保认证服务器先于资源服务器配置即可，比如在认证服务器的配置类上使用`@Order(1)`标注，在资源服务器的配置类上使用`@Order(2)`标注。 注意Order后，它的加载顺序是有问题的，所以有可能出现401，最好不要加，我加上后，上方错误不出现了，但是一直401，所以我又去掉了
 
 接下来我们再次重启服务，重复上面的步骤，访问http://localhost:8080/oauth/authorize?response_type=code&client_id=test&redirect_uri=http://client1.com&scope=all&state=hello 地址获取token
 
-![1649989289052](doc/1649989289052.png)
+![1649989289052](../springsecurity/doc/1649989289052-1650002170049.png)
 
-![1649989302874](doc/1649989302874.png)
+![1649989302874](../springsecurity/doc/1649989302874-1650002170049.png)
 
 授权完成后，获取code码，
 
-![1649989321982](doc/1649989321982.png)
+![1649989321982](../springsecurity/doc/1649989321982-1650002170049.png)
 
 通过code码再去获取access_token和token_type
 
-![1649989393857](doc/1649989393857.png)
+![1649989393857](../springsecurity/doc/1649989393857-1650002170049.png)
 
 然后接着去访问http://localhost:8080/index 就可以拿到信息了
 
-![1649992741846](doc/1649992741846.png)
+![1649992741846](../springsecurity/doc/1649992741846-1650002170049.png)
+
+## Spring Security OAuth2自定义Token获取方式
+
+如何通过自定义的用户名密码和手机短信验证码的方式来获取令牌。
+
+### 自定义用户名密码方式获取令牌
+
+们先在资源服务器上加入一些基本的Spring Security配置:
+
+```java
+package com.study.sso.springsecurity.oauth2.config;
+
+import com.study.sso.springsecurity.oauth2.handler.MyAuthenticationFailureHandler;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.oauth2.config.annotation.web.configuration.EnableResourceServer;
+import org.springframework.security.oauth2.config.annotation.web.configuration.ResourceServerConfigurerAdapter;
+
+@Configuration
+@EnableResourceServer
+
+public class ResourceServerConfig extends ResourceServerConfigurerAdapter {
+    @Autowired
+    private MyAuthenticationSucessHandler authenticationSucessHandler;
+    @Autowired
+    private MyAuthenticationFailureHandler authenticationFailureHandler;
+
+    @Override
+    public void configure(HttpSecurity http) throws Exception {
+        http.formLogin() // 表单登录
+                .loginProcessingUrl("/login") // 处理表单登录 URL
+                .successHandler(authenticationSucessHandler) // 处理登录成功
+                .failureHandler(authenticationFailureHandler) // 处理登录失败
+                .and()
+                .authorizeRequests() // 授权配置
+                .anyRequest()  // 所有请求
+                .authenticated() // 都需要认证
+                .and()
+                .csrf().disable();
+    }
+}
+```
+
+`MyAuthenticationFailureHandler`失败处理器的逻辑很简单，就是认证失败放回相应提示：
+
+```java
+@Component
+public class MyAuthenticationFailureHandler implements AuthenticationFailureHandler {
+    @Autowired
+    private ObjectMapper mapper;
+
+    @Override
+    public void onAuthenticationFailure(HttpServletRequest request, HttpServletResponse response,
+                                        AuthenticationException exception) throws IOException {
+        response.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());
+        response.setContentType("application/json;charset=utf-8");
+        response.getWriter().write(mapper.writeValueAsString(exception.getMessage()));
+    }
+}
+```
+
+  问题的关键是，如何在登录成功处理器里返回令牌。在研究Spring Security OAuth2自带的令牌获取方式后，会发现令牌的产生可以归纳为以下几个步骤：
+
+
+
+![624223930.png](../springsecurity/doc/624223930.png)
+
+我们可以参考这个流程，来实现在登录成功处理器`MyAuthenticationSucessHandler`里生成令牌并返回：
+
+![1649994354347](../springsecurity/doc/1649994354347-1650002170049.png)
+
+使用这个令牌便可以成功访问`/index`接口
+
+![1649994420307](../springsecurity/doc/1649994420307-1650002170049.png)
+
+### 短信验证码获取令牌
+
+我们使用第三方存储来保存我们的验证码（无论是短信验证码还是图形验证码都是一个道理），比如Redis等。
+
+引入Redis依赖：
+
+```
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-redis</artifactId>
+</dependency>
+```
+
+定义一个`RedisCodeService`，用于验证码的增删改：
+
+```java
+package com.study.sso.springsecurity.oauth2.service;
+
+import com.study.sso.springsecurity.oauth2.entity.SmsCode;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.stereotype.Service;
+import org.springframework.web.context.request.ServletWebRequest;
+
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Redis操作验证码服务
+ */
+@Service
+public class RedisCodeService {
+
+    private final static String SMS_CODE_PREFIX = "SMS_CODE:";
+    private final static Integer TIME_OUT = 300;
+
+    @Autowired
+    private StringRedisTemplate redisTemplate;
+
+    /**
+     * 保存验证码到 redis
+     *
+     * @param smsCode 短信验证码
+     * @param request ServletWebRequest
+     */
+    public void save(SmsCode smsCode, ServletWebRequest request, String mobile) throws Exception {
+        redisTemplate.opsForValue().set(key(request, mobile), smsCode.getCode(), TIME_OUT, TimeUnit.SECONDS);
+    }
+
+    /**
+     * 获取验证码
+     *
+     * @param request ServletWebRequest
+     * @return 验证码
+     */
+    public String get(ServletWebRequest request, String mobile) throws Exception {
+        return redisTemplate.opsForValue().get(key(request, mobile));
+    }
+
+    /**
+     * 移除验证码
+     *
+     * @param request ServletWebRequest
+     */
+    public void remove(ServletWebRequest request, String mobile) throws Exception {
+        redisTemplate.delete(key(request, mobile));
+    }
+
+    private String key(ServletWebRequest request, String mobile) throws Exception {
+        String deviceId = request.getHeader("deviceId");
+        if (StringUtils.isBlank(deviceId)) {
+            throw new Exception("请在请求头中设置deviceId");
+        }
+        return SMS_CODE_PREFIX + deviceId + ":" + mobile;
+    }
+}
+```
+
+再定义一个SMSCode的短信基本类
+
+```java
+package com.study.sso.springsecurity.oauth2.entity;
+
+import lombok.Data;
+
+import java.io.Serializable;
+import java.time.LocalDateTime;
+
+/**
+ * 短信验证码对象SmsCode
+ */
+@Data
+public class SmsCode implements Serializable {
+    /**
+     * 验证码
+     */
+    private String code;
+    /**
+     * 过期时间
+     */
+    private LocalDateTime expireTime;
+
+    public SmsCode(String code, int expireIn) {
+        this.code = code;
+        this.expireTime = LocalDateTime.now().plusSeconds(expireIn);
+    }
+
+    public SmsCode(String code, LocalDateTime expireTime) {
+        this.code = code;
+        this.expireTime = expireTime;
+    }
+
+    /**
+     * isExpire方法用于判断短信验证码是否已过期。
+     * @return
+     */
+    public boolean isExpire() {
+        return LocalDateTime.now().isAfter(expireTime);
+    }
+}
+```
+
+配置文件添加关于redis的配置
+
+```java
+spring:
+  redis:
+    host: 10.10.4.76
+```
+
+同时配置"/code/sms"这个请求路径不需要拦截
+
+同时控制器当中编写
+
+```java
+@GetMapping("/code/sms")
+public void createSmsCode(HttpServletRequest request, HttpServletResponse response, String mobile) throws Exception {
+    SmsCode smsCode = createSMSCode();
+    redisCodeService.save(smsCode,new ServletWebRequest(request),mobile);
+    // 短信发送服务
+    System.out.println("您的登录验证码为：" + smsCode.getCode() + "，有效时间为60秒");
+}
+
+private SmsCode createSMSCode() {
+    String code = RandomStringUtils.randomNumeric(6);
+    return new SmsCode(code, 60);
+}
+```
+
+启动系统，使用postman发送验证码：请求头中带上deviceId（这里为随便填写的模拟值）：
+
+![1649999097852](../springsecurity/doc/1649999097852-1650002170049.png)
+
+![1649999208456](../springsecurity/doc/1649999208456-1650002170049.png)
+
+接着用这个验证码去换取令牌，使用postman发送如下请求：
+
+![1649999841128](../springsecurity/doc/1649999841128-1650002170049.png)
+
+## Spring Security OAuth2自定义令牌配置
+
+
+
+在前面几节中，我们获取到的令牌都是基于Spring Security OAuth2默认配置生成的，Spring Security允许我们自定义令牌配置，比如不同的client_id对应不同的令牌，令牌的有效时间，令牌的存储策略等；我们也可以使用JWT来替换默认的令牌。
+
+###   自定义令牌配置
+
+我们让认证服务器`AuthorizationServerConfig`继承`AuthorizationServerConfigurerAdapter`，并重写它的`configure(ClientDetailsServiceConfigurer clients)`方法：
+
+```java
+@Configuration
+@EnableAuthorizationServer
+public class AuthorizationServerConfig extends AuthorizationServerConfigurerAdapter {
+
+    ......
+
+    @Autowired
+    private AuthenticationManager authenticationManager;
+    @Autowired
+    private UserDetailService userDetailService;
+
+    @Override
+    public void configure(AuthorizationServerEndpointsConfigurer endpoints) {
+        endpoints.authenticationManager(authenticationManager)
+                .userDetailsService(userDetailService);
+    }
+
+    @Override
+    public void configure(ClientDetailsServiceConfigurer clients) throws Exception {
+        clients.inMemory()
+                .withClient("test1")
+                .secret("test1111")
+                .accessTokenValiditySeconds(3600)
+                .refreshTokenValiditySeconds(864000)
+                .scopes("all", "a", "b", "c")
+                .authorizedGrantTypes("password")
+            .and()
+                .withClient("test2")
+                .secret("test2222")
+                .accessTokenValiditySeconds(7200);
+    }
+}
+```
+
+认证服务器在继承了AuthorizationServerConfigurerAdapter适配器后，需要重写`configure(AuthorizationServerEndpointsConfigurer endpoints)`方法，指定 `AuthenticationManager`和`UserDetailService`。
+
+创建一个新的配置类`SecurityConfig`，在里面注册我们需要的`AuthenticationManager`Bean：
+
+```java
+@Configuration
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+    @Bean(name = BeanIds.AUTHENTICATION_MANAGER)
+    @Override
+    public AuthenticationManager authenticationManagerBean() throws Exception {
+        return super.authenticationManagerBean();
+    }
+}
+```
+
+此外，重写`configure(ClientDetailsServiceConfigurer clients)`方法主要配置了：
+
+1. 定义两个client_id，及客户端可以通过不同的client_id来获取不同的令牌；
+2. client_id为test1的令牌有效时间为3600秒，client_id为test2的令牌有效时间为7200秒；
+3. client_id为test1的refresh_token（下面会介绍到）有效时间为864000秒，即10天，也就是说在这10天内都可以通过refresh_token来换取新的令牌；
+4. 在获取client_id为test1的令牌的时候，scope只能指定为all，a，b或c中的某个值，否则将获取失败；
+5. 只能通过密码模式(password)来获取client_id为test1的令牌，而test2则无限制。
+
+启动项目，演示几个效果。启动项目后使用密码模式获取test1的令牌：
+
+和前面介绍的那样，头部需要传入`test1:test1111`经过base64加密后的值：
+
+![1650001948436](../springsecurity/doc/1650001948436-1650002170049.png)
+
+![1650001898431](../springsecurity/doc/1650001898431-1650002170049.png)
+
+点击发送后，意外的返回了错误！
+
+
+
+在新版本的spring-cloud-starter-oauth2指定client_secret的时候需要进行加密处理：
+
+```java
+@Configuration
+@EnableAuthorizationServer
+public class AuthorizationServerConfig extends AuthorizationServerConfigurerAdapter {
+
+    ......
+
+    @Override
+    public void configure(ClientDetailsServiceConfigurer clients) throws Exception {
+        clients.inMemory()
+                .withClient("test1")
+                .secret(new BCryptPasswordEncoder().encode("test1111"))
+                .accessTokenValiditySeconds(3600)
+                .refreshTokenValiditySeconds(864000)
+                .scopes("all", "a", "b", "c")
+                .authorizedGrantTypes("password")
+            .and()
+                .withClient("test2")
+                .secret(new BCryptPasswordEncoder().encode("test2222"))
+                .accessTokenValiditySeconds(7200);
+    }
+}
+```
+
+在前面自定义登录认证获取令牌一节中，我们在`MyAuthenticationSucessHandler`判断了client_secret的值是否正确。由于我们这里client_secret加密了，所以判断逻辑需要调整为下面这样:
+
+```java
+`...else if (!passwordEncoder.matches(clientSecret, clientDetails.getClientSecret())) {    throw new UnapprovedClientAuthenticationException("clientSecret不正确");} ...`
+```
+
+修改后重启项目，重新使用密码模式获取令牌：
+
+![1650002239943](../springsecurity/doc/1650002239943-1650004227141.png)
+
+可以看到`expires_in`的时间是我们定义的3600秒。
+
+将scope指定为d看看会有什么结果:
+
+![1650002280728](/doc/1650002280728.png)
+
+由于我们定义了只能通过密码模式来获取client_id为test1的令牌，所以我们看看将grant_type改为xxoo会有什么结果:
+
+![1650002419576](../springsecurity/doc/1650002419576-1650004227141.png)
+
+默认令牌是存储在内存中的，我们可以将它保存到第三方存储中，比如Redis。
+
+创建`TokenStoreConfig`：
+
+```java
+@Configuration
+public class TokenStoreConfig {
+
+    @Autowired
+    private RedisConnectionFactory redisConnectionFactory;
+
+    @Bean
+    public TokenStore redisTokenStore (){
+        return new RedisTokenStore(redisConnectionFactory);
+    }
+}
+```
+
+然后在认证服务器里指定该令牌存储策略。重写`configure(AuthorizationServerEndpointsConfigurer endpoints)`方法：
+
+```java
+@Configuration
+@EnableAuthorizationServer
+public class AuthorizationServerConfig extends AuthorizationServerConfigurerAdapter {
+
+    @Autowired
+    private TokenStore redisTokenStore;
+
+    @Override
+    public void configure(AuthorizationServerEndpointsConfigurer endpoints) {
+        endpoints.authenticationManager(authenticationManager)
+            .tokenStore(redisTokenStore);
+    }
+
+    ......
+}
+```
+
+重启项目获取令牌后，查看Redis中是否存储了令牌相关信息：
+
+![1650002654949](../springsecurity/doc/1650002654949-1650004227141.png)
+
+可以看到，令牌信息已经存储到Redis里了。
+
+### 使用JWT替换默认令牌
+
+使用JWT替换默认的令牌（默认令牌使用UUID生成）只需要指定TokenStore为JwtTokenStore即可。
+
+创建一个`JWTokenConfig`配置类：
+
+```java
+package com.study.sso.springsecurity.oauth2.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.oauth2.provider.token.TokenStore;
+import org.springframework.security.oauth2.provider.token.store.JwtAccessTokenConverter;
+import org.springframework.security.oauth2.provider.token.store.JwtTokenStore;
+
+@Configuration
+public class JWTokenConfig {
+
+    @Bean
+    public TokenStore jwtTokenStore() {
+        return new JwtTokenStore(jwtAccessTokenConverter());
+    }
+
+    @Bean
+    public JwtAccessTokenConverter jwtAccessTokenConverter() {
+        JwtAccessTokenConverter accessTokenConverter = new JwtAccessTokenConverter();
+        accessTokenConverter.setSigningKey("test_key"); // 签名密钥
+        return accessTokenConverter;
+    }
+}
+```
+
+签名密钥为`test_key`。在配置类里配置好`JwtTokenStore`后，我们在认证服务器里指定它：
+
+```java
+@Configuration
+@EnableAuthorizationServer
+public class AuthorizationServerConfig extends AuthorizationServerConfigurerAdapter {
+    @Autowired
+    private TokenStore jwtTokenStore;
+    @Autowired
+    private JwtAccessTokenConverter jwtAccessTokenConverter;
+
+    @Override
+    public void configure(AuthorizationServerEndpointsConfigurer endpoints) {
+        endpoints.authenticationManager(authenticationManager)
+                .tokenStore(jwtTokenStore)
+                .accessTokenConverter(jwtAccessTokenConverter);
+    }
+
+    ......
+}
+```
+
+重启服务时出现失败：
+
+![1650002967979](../springsecurity/doc/1650002967979-1650004227141.png)
+
+这是因为我们里边设置了两个令牌，由于我们现在是要测试jwt，所以先把redis的给去注释掉
+
+重启服务获取令牌，系统将返回如下格式令牌：
+
+![1650003045251](../springsecurity/doc/1650003045251-1650004227141.png)
+
+将`access_token`中的内容复制到<https://jwt.io/>网站解析下：
+
+![1650003146438](../springsecurity/doc/1650003146438-1650004227141.png)
+
+### 拓展JWT
+
+上面的Token解析得到的PAYLOAD内容为：
+
+```
+{
+  "exp": 1650006637,
+  "user_name": "test1",
+  "authorities": [
+    "admin"
+  ],
+  "jti": "bca3b773-5cf8-4da8-8215-43dc79e83d33",
+  "client_id": "test1",
+  "scope": [
+    "all"
+  ]
+}
+```
+
+如果想在JWT中添加一些额外的信息，我们需要实现`TokenEnhancer`（Token增强器）：
+
+```java
+public class JWTokenEnhancer implements TokenEnhancer {
+    @Override
+    public OAuth2AccessToken enhance(OAuth2AccessToken oAuth2AccessToken, OAuth2Authentication oAuth2Authentication) {
+        Map<String, Object> info = new HashMap<>();
+        info.put("message", "hello world");
+        ((DefaultOAuth2AccessToken) oAuth2AccessToken).setAdditionalInformation(info);
+        return oAuth2AccessToken;
+    }
+}
+```
+
+我们在Token中添加了`message: hello world`信息。然后在`JWTokenConfig`里注册该Bean：
+
+```java
+@Configuration
+public class JWTokenConfig {
+    ......
+
+    @Bean
+    public TokenEnhancer tokenEnhancer() {
+        return new JWTokenEnhancer();
+    }
+}
+```
+
+最后在认证服务器里配置该增强器：
+
+```java
+@Configuration
+@EnableAuthorizationServer
+public class AuthorizationServerConfig extends AuthorizationServerConfigurerAdapter {
+
+    @Autowired
+    private TokenStore jwtTokenStore;
+    @Autowired
+    private JwtAccessTokenConverter jwtAccessTokenConverter;
+    @Autowired
+    private TokenEnhancer tokenEnhancer;
+
+    @Override
+    public void configure(AuthorizationServerEndpointsConfigurer endpoints) {
+        TokenEnhancerChain enhancerChain = new TokenEnhancerChain();
+        List<TokenEnhancer> enhancers = new ArrayList<>();
+        enhancers.add(tokenEnhancer);
+        enhancers.add(jwtAccessTokenConverter);
+        enhancerChain.setTokenEnhancers(enhancers);
+
+        endpoints.tokenStore(jwtTokenStore)
+                .accessTokenConverter(jwtAccessTokenConverter)
+                .tokenEnhancer(enhancerChain);
+    }
+    ......
+}
+```
+
+重启项目，再次获取令牌，系统返回：
+
+```java
+{
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX25hbWUiOiJtcmJpcmQiLCJzY29wZSI6W10sImV4cCI6MTU2MTUzNDQ1MCwibWVzc2FnZSI6ImhlbGxvIHdvcmxkIiwiYXV0aG9yaXRpZXMiOlsiYWRtaW4iXSwianRpIjoiY2E1NDA3ZTEtMzBmZS00MzA3LThiYmItYjU2NGY5Y2ViOWUzIiwiY2xpZW50X2lkIjoidGVzdDEifQ.qW92ssifRKi_rxX2XIH2u4D5IUPVcKECv812hTpuUuA",
+    "token_type": "bearer",
+    "expires_in": 3599,
+    "message": "hello world",
+    "jti": "ca5407e1-30fe-4307-8bbb-b564f9ceb9e3"
+}
+```
+
+### Java中解析JWT
+
+要在Java代码中解析JWT，需要添加如下依赖：
+
+```
+`<dependency>    <groupId>io.jsonwebtoken</groupId>    <artifactId>jjwt</artifactId>    <version>0.9.1</version></dependency>`
+```
+
+修改`/index`：
+
+```java
+@GetMapping("index")
+public Object index(@AuthenticationPrincipal Authentication authentication, HttpServletRequest request) {
+    String header = request.getHeader("Authorization");
+    String token = StringUtils.substringAfter(header, "bearer ");
+
+    return Jwts.parser().setSigningKey("test_key".getBytes(StandardCharsets.UTF_8)).parseClaimsJws(token).getBody();
+}
+```
+
+signkey需要和`JwtAccessTokenConverter`中指定的签名密钥一致。重启项目，获取令牌后访问`/index`，输出内容如下：
+
+```
+{
+    "exp": 1561557893,
+    "user_name": "mrbird",
+    "authorities": [
+        "admin"
+    ],
+    "jti": "3c29f89a-1344-40d8-bcfd-1b9c45fb8b89",
+    "client_id": "test1",
+    "scope": [
+        "all"
+    ]
+}
+```

@@ -4,3 +4,7 @@ security:
       client-id: test
       client-secret: test
       registered-redirect-uri: http://client1.com
+spring:
+  redis:
+    host: 10.10.4.76
+    database: 1
