@@ -1,5 +1,7 @@
 # springsecurity-oauth2
 
+key为Authorization，value为Basic加上client_id:client_secret经过base64加密后的值（可以使用http://tool.chinaz.com/Tools/Base64.aspx）:
+
 [OAuth](https://oauth.net/2/)是一种用来规范令牌（Token）发放的授权机制，主要包含了四种授权模式：授权码模式、简化模式、密码模式和客户端模式。Spring Security OAuth2对这四种授权模式进行了实现。这节主要记录下什么是OAuth2以及Spring Security OAuth2的基本使用。
 
 ## 四种授权模式
@@ -1060,19 +1062,67 @@ public Object index(@AuthenticationPrincipal Authentication authentication, Http
 }
 ```
 
-signkey需要和`JwtAccessTokenConverter`中指定的签名密钥一致。重启项目，获取令牌后访问`/index`，输出内容如下：
+signkey需要和`JwtAccessTokenConverter`中指定的签名密钥一致。重启项目，获取令牌后访问`/index`,
+
+![1650004612313](doc/1650004612313.png)
+
+输出内容如下：
 
 ```
 {
-    "exp": 1561557893,
-    "user_name": "mrbird",
+    "exp": 1650008088,
+    "user_name": "test1",
     "authorities": [
         "admin"
     ],
-    "jti": "3c29f89a-1344-40d8-bcfd-1b9c45fb8b89",
+    "jti": "bd5e9cc4-6032-4481-b491-253737dcccca",
     "client_id": "test1",
     "scope": [
         "all"
     ]
 }
 ```
+
+### 刷新令牌
+
+令牌过期后我们可以使用refresh_token来从系统中换取一个新的可用令牌。但是从前面的例子可以看到，在认证成功后返回的JSON信息里并没有包含refresh_token，要让系统返回refresh_token，需要在认证服务器自定义配置里添加如下配置：
+
+```java
+@Configuration
+@EnableAuthorizationServer
+public class AuthorizationServerConfig extends AuthorizationServerConfigurerAdapter {
+
+	......
+
+    @Override
+    public void configure(ClientDetailsServiceConfigurer clients) throws Exception {
+        clients.inMemory()
+                .withClient("test1")
+                .secret(new BCryptPasswordEncoder().encode("test1111"))
+                .authorizedGrantTypes("password", "refresh_token")
+                .accessTokenValiditySeconds(3600)
+                .refreshTokenValiditySeconds(864000)
+                .scopes("all", "a", "b", "c")
+            .and()
+                .withClient("test2")
+                .secret(new BCryptPasswordEncoder().encode("test2222"))
+                .accessTokenValiditySeconds(7200);
+    }
+}
+```
+
+授权方式需要加上`refresh_token`，除了四种标准的OAuth2获取令牌方式外，Spring Security OAuth2内部把`refresh_token`当作一种拓展的获取令牌方式。
+
+通过上面的配置，使用test1这个client_id获取令牌时将返回refresh_token，refresh_token的有效期为10天，即10天之内都可以用它换取新的可用令牌。
+
+重启项目，认证成功后，系统返回如：
+
+![1650004787552](doc/1650004787552.png)
+
+假设现在access_token过期了，我们用refresh_token去换取新的令牌。使用postman发送如下请求：
+
+![1650004980106](doc/1650004980106.png)
+
+![1650004951480](doc/1650004951480.png)
+
+学习地址：https://github.com/wuyouzhuguli/SpringAll 
